@@ -59,6 +59,31 @@ pip install -r backend/requirements.txt
 uvicorn backend.main:app --reload
 ```
 
+## PostGIS via Docker (Default Port 5434)
+Start PostGIS directly with a single Docker command:
+```powershell
+docker run -d --name pg-postgis-5434 `
+  -e POSTGRES_PASSWORD=StrongP@ssw0rd `
+  -e POSTGRES_DB=osm `
+  -p 5434:5432 `
+  postgis/postgis:15-3.4
+```
+Enable extensions (inside the container):
+```powershell
+docker exec pg-postgis-5434 psql -U postgres -d osm -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+docker exec pg-postgis-5434 psql -U postgres -d osm -c "CREATE EXTENSION IF NOT EXISTS hstore;"
+```
+Update `.env` accordingly:
+```
+PGHOST=localhost
+PGPORT=5434
+PGUSER=postgres
+PGPASSWORD=StrongP@ssw0rd
+PGDATABASE=osm
+```
+
+Optional: use `scripts/setup_postgis.ps1` to run the same with defaults (port 5434) or override parameters.
+
 ## OSM Data Loading (Summary)
 Use `scripts/load_osm.sh` as reference to import a regional extract with `osm2pgsql`, then create a `roads` table. Each road LineString feeds graph builder endpoints.
 

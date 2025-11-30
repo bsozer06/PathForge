@@ -2,44 +2,26 @@ Param(
   [string]$ContainerName = "pg-postgis",
   [string]$PostgresPassword = "yourpassword",
   [string]$Database = "osm",
-  [int]$HostPort = 5432,
+  [int]$HostPort = 5434,
   [string]$Image = "postgis/postgis:15-3.4"
 )
 
-Write-Host "Pulling image $Image ..."
-docker pull $Image | Out-Null
+function Fail($msg) { Write-Error $msg; exit 1 }
 
-if ((docker ps -a --format "{{.Names}}" | Where-Object { $_ -eq $ContainerName })) {
-  Write-Host "Container $ContainerName already exists. Restarting..."
-  docker restart $ContainerName | Out-Null
-} else {
-  Write-Host "Creating container $ContainerName ..."
-  docker run -d --name $ContainerName `
-    -e POSTGRES_PASSWORD=$PostgresPassword `
-    -e POSTGRES_DB=$Database `
-    -p $HostPort:5432 `
-    $Image | Out-Null
+# Verify Docker exists
+if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+  Fail "Docker CLI not found. Please install Docker Desktop and retry."
 }
 
-Write-Host "Waiting for PostgreSQL to accept connections..."
-$maxAttempts = 30
-for ($i=0; $i -lt $maxAttempts; $i++) {
-  try {
-    docker exec $ContainerName pg_isready -U postgres | Out-Null
-    if ($LASTEXITCODE -eq 0) { break }
-  } catch {}
-  Start-Sleep -Seconds 2
-}
+# Build single-line docker run command string and execute
+$cmd = "docker run -d --name $ContainerName -e POSTGRES_PASSWORD=$PostgresPassword -e POSTGRES_DB=$Database -p $HostPort:5432 $Image"
+Write-Host "Executing: $cmd"
+$runOut = Invoke-Expression $cmd 2>&1
+if ($LASTEXITCODE -ne 0) { Fail "docker run failed. Details: $runOut" }
 
-if ($i -ge $maxAttempts) {
-  Write-Error "PostgreSQL did not become ready in time."; exit 1
-}
+Write-Host "Container started. You can now enable extensions:"
+Write-Host " docker exec $ContainerName psql -U postgres -d $Database -c \"CREATE EXTENSION IF NOT EXISTS postgis;\""
+Write-Host " docker exec $ContainerName psql -U postgres -d $Database -c \"CREATE EXTENSION IF NOT EXISTS hstore;\""
 
-Write-Host "Enabling extensions in database $Database ..."
-docker exec $ContainerName psql -U postgres -d $Database -c "CREATE EXTENSION IF NOT EXISTS postgis;" | Out-Null
-# hstore is optional but useful for osm2pgsql
-docker exec $ContainerName psql -U postgres -d $Database -c "CREATE EXTENSION IF NOT EXISTS hstore;" | Out-Null
-
-Write-Host "PostGIS container is ready: name=$ContainerName, port=$HostPort, db=$Database"
 Write-Host "Update your .env with:"
 Write-Host "PGHOST=localhost"; Write-Host "PGPORT=$HostPort"; Write-Host "PGUSER=postgres"; Write-Host "PGPASSWORD=$PostgresPassword"; Write-Host "PGDATABASE=$Database";
