@@ -1,0 +1,11 @@
+import psycopg2, os
+from typing import Any
+
+def get_connection():
+    return psycopg2.connect(
+        host=os.getenv('PGHOST', 'localhost'),
+        port=os.getenv('PGPORT', '5432'),
+        user=os.getenv('PGUSER', 'postgres'),
+        password=os.getenv('PGPASSWORD', ''),
+        dbname=os.getenv('PGDATABASE', 'osm')
+    )
