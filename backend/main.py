@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from .api.routes import router as api_router, engine_objects
 from .engine.graph_builder import GraphBuilder
 from .engine.router import Router
+from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 app = FastAPI(title="PathForge Routing Engine")
@@ -31,6 +32,14 @@ async def lifespan(app: FastAPI):
         builder.close()
 
 app = FastAPI(title="PathForge Routing Engine", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(api_router)
 
