@@ -50,7 +50,7 @@ class GraphBuilder:
                 dbname=os.getenv('PGDATABASE', 'osm')
             )
         cur = self._conn.cursor()
-        cur.execute("SELECT id, ST_AsGeoJSON(geom) FROM roads;")
+        cur.execute("SELECT id, ST_AsGeoJSON(way) FROM planet_osm_roads;")
         rows = cur.fetchall()
         for _rid, geojson in rows:
             data = json.loads(geojson)
