@@ -27,20 +27,46 @@ class GraphBuilder:
         return nid
 
     def build(self) -> Graph:
-        # Attempt to load cache first
+        # Check if 'roads' table exists, if not, run roads.sql to create it
+        try:
+            conn = psycopg2.connect(
+                host=os.getenv('PGHOST', 'localhost'),
+                port=os.getenv('PGPORT', '5432'),
+                user=os.getenv('PGUSER', 'postgres'),
+                password=os.getenv('PGPASSWORD', ''),
+                dbname=os.getenv('PGDATABASE', 'osm')
+            )
+            with conn.cursor() as cur:
+                cur.execute("SELECT to_regclass('roads');")
+                exists = cur.fetchone()[0]
+                if not exists:
+                    print("[GraphBuilder] 'roads' table not found. Running roads.sql...")
+                    with open('scripts/roads.sql', 'r') as f:
+                        sql = f.read()
+                    cur.execute(sql)
+                    conn.commit()
+                    print("[GraphBuilder] 'roads' table created.")
+                else:
+                    cur.execute("SELECT COUNT(*) FROM roads;")
+                    count = cur.fetchone()[0]
+                    print(f"[GraphBuilder] Number of rows in roads table: {count}")
+            conn.close()
+        except Exception as e:
+            print(f"[GraphBuilder] Failed to check or create roads table: {e}")
+
+        # Try loading graph from cache
         if self._cache_path.exists():
             try:
                 with self._cache_path.open('rb') as f:
-                    data = pickle.load(f)
-                self.graph = data.get('graph', {})
-                self.node_index = data.get('node_index', {})
-                self.next_id = data.get('next_id', len(self.node_index))
+                    cache = pickle.load(f)
+                self.graph = cache.get('graph', {})
+                self.node_index = cache.get('node_index', {})
+                self.next_id = cache.get('next_id', len(self.node_index))
                 return self.graph
-            except Exception:
-                # Ignore cache load errors and rebuild
-                pass
+            except Exception as e:
+                print(f"[GraphBuilder] Failed to load cache: {e}")
 
-        # Connect only if we need to rebuild
+        # Connect to database if cache is not available
         if not self._conn:
             self._conn = psycopg2.connect(
                 host=os.getenv('PGHOST', 'localhost'),
@@ -50,9 +76,11 @@ class GraphBuilder:
                 dbname=os.getenv('PGDATABASE', 'osm')
             )
         cur = self._conn.cursor()
-        cur.execute("SELECT id, ST_AsGeoJSON(way) FROM planet_osm_roads;")
+
+        # Fetch road geometries from planet_osm_roads table
+        cur.execute("SELECT id, ST_AsGeoJSON(geom) FROM roads;")
         rows = cur.fetchall()
-        for _rid, geojson in rows:
+        for road_id, geojson in rows:
             data = json.loads(geojson)
             if data.get('type') != 'LineString':
                 continue
