@@ -89,7 +89,7 @@ Prefer a single command that handles network setup, PostGIS start, extension ena
 
 Quick run (from repo root):
 ```powershell
-.\n+scripts\import_osm.ps1 -PbfFile "C:\_burhan\_projects\PathForge\turkey-latest.osm.pbf"
+.\scripts\import_osm.ps1 -PbfFile "C:\_burhan\_projects\PathForge\turkey-latest.osm.pbf"
 ```
 
 Common options:
@@ -97,8 +97,52 @@ Common options:
 - `-DbName osm` set database name
 - `-SkipImport` skip the OSM import step
 - `-SkipRoads` skip applying `scripts\roads.sql`
+ - `-BBox "minlon,minlat,maxlon,maxlat"` import only this bounding box (PBF must cover this area)
 
-The script prints recommended `.env` values at the end.
+
+### Import OSM with Bounding Box (Step-by-Step)
+
+1. **Download OSM PBF file**
+  - Example (Turkey):
+    ```powershell
+    Invoke-WebRequest -Uri https://download.geofabrik.de/europe/turkey-latest.osm.pbf -OutFile turkey-latest.osm.pbf
+    ```
+
+2. **Run the import script with a bounding box**
+  - Replace the coordinates with your area of interest:
+    ```powershell
+    .\scripts\import_osm.ps1 -PbfFile "C:\_burhan\_projects\PathForge\turkey-latest.osm.pbf" -BBox "28.90,41.00,29.10,41.10"
+    ```
+  - `-BBox` format: `minlon,minlat,maxlon,maxlat` (e.g., Istanbul region)
+  - The PBF file must cover the bounding box area you specify.
+
+3. **What the script does**
+  - Ensures Docker network and PostGIS container are running
+  - Enables required extensions (`postgis`, `hstore`)
+  - Imports only the data within your bounding box using `osm2pgsql`
+  - Creates the `roads` table and spatial index
+  - Prints the number of imported roads and recommended `.env` settings
+
+4. **Verify import**
+  - Check road count:
+    ```powershell
+    docker exec pg-postgis-5434 psql -U postgres -d osm -c "SELECT COUNT(*) FROM roads;"
+    ```
+  - Or run the Python DB check:
+    ```powershell
+    . .venv\Scripts\Activate.ps1
+    python backend\tools\db_check.py
+    ```
+
+5. **Troubleshooting**
+  - If you get a file not found error, check your path and filename.
+  - If the bounding box is outside the PBF coverage, import will be empty.
+  - For large areas, import may take a long time and use significant disk space.
+
+6. **Example bounding boxes**
+  - Istanbul: `28.90,41.00,29.10,41.10`
+  - Ankara: `32.80,39.80,33.00,40.00`
+  - Izmir: `26.90,38.30,27.30,38.60`
 
 ## OSM Import (Docker-based)
 Download a Geofabrik extract (example: Turkey):

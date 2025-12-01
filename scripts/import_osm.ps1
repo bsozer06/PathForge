@@ -8,6 +8,7 @@ Param(
   [string]$Osm2pgsqlImage = "iboates/osm2pgsql:latest",
   [string]$Workdir = (Get-Location).Path,
   [string]$PbfFile = "turkey-latest.osm.pbf",
+  [string]$BBox, # format: minlon,minlat,maxlon,maxlat
   [switch]$SkipImport = $false,
   [switch]$SkipRoads = $false
 )
@@ -32,8 +33,16 @@ $exists = docker ps -a --format "{{.Names}}" | Where-Object { $_ -eq $ContainerN
 if ($exists) {
   $running = docker ps --format "{{.Names}}" | Where-Object { $_ -eq $ContainerName }
   if (-not $running) { docker start $ContainerName | Out-Null }
-  # Ensure correct network connection
-  docker network connect $NetworkName $ContainerName 2>$null
+  # Ensure correct network connection only if not already attached
+  $netJson = docker inspect -f "{{json .NetworkSettings.Networks}}" $ContainerName 2>$null
+  try { $netObj = $netJson | ConvertFrom-Json } catch { $netObj = $null }
+  $attached = $false
+  if ($netObj -ne $null) {
+    $attached = $netObj.PSObject.Properties.Name -contains $NetworkName
+  }
+  if (-not $attached) {
+    docker network connect $NetworkName $ContainerName | Out-Null
+  }
 } else {
   docker run -d --name $ContainerName --network $NetworkName `
     -e POSTGRES_PASSWORD=$PostgresPassword -e POSTGRES_DB=$DbName `
@@ -50,22 +59,42 @@ for ($i=0; $i -lt $maxAttempts; $i++) {
 if ($i -ge $maxAttempts) { Fail "PostgreSQL did not become ready in time." }
 
 Write-Host "Enabling extensions (postgis, hstore) ..."
-$extOut1 = docker exec $ContainerName psql -U postgres -d $DbName -c "CREATE EXTENSION IF NOT EXISTS postgis;" 2>&1
+$oldErrPref = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$extOut1 = docker exec $ContainerName psql -U postgres -d $DbName -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 if ($LASTEXITCODE -ne 0) { Fail "Failed to enable postgis: $extOut1" }
-$extOut2 = docker exec $ContainerName psql -U postgres -d $DbName -c "CREATE EXTENSION IF NOT EXISTS hstore;" 2>&1
+$extOut2 = docker exec $ContainerName psql -U postgres -d $DbName -c "CREATE EXTENSION IF NOT EXISTS hstore;"
 if ($LASTEXITCODE -ne 0) { Fail "Failed to enable hstore: $extOut2" }
+$ErrorActionPreference = $oldErrPref
 
 if (-not $SkipImport) {
-  $pbfPath = Join-Path $Workdir $PbfFile
+  if ([System.IO.Path]::IsPathRooted($PbfFile)) {
+    $pbfPath = $PbfFile
+    $pbfName = [System.IO.Path]::GetFileName($PbfFile)
+  } else {
+    $pbfPath = Join-Path $Workdir $PbfFile
+    $pbfName = $PbfFile
+  }
   if (-not (Test-Path $pbfPath)) {
     Fail "PBF file not found at '$pbfPath'. Download it first or pass -PbfFile path."
   }
   Write-Host "Importing OSM data from '$pbfPath' ..."
-  $volume = "$Workdir:/data"
-  $imp = docker run --rm --network $NetworkName -v "$volume" `
-    -e PGPASSWORD=$PostgresPassword $Osm2pgsqlImage `
-    osm2pgsql -d $DbName -U postgres --host $ContainerName --port 5432 `
-    --create --slim --hstore --latlong "/data/$PbfFile" 2>&1
+  $volume = "$($Workdir):/data"
+  $dockerArgs = @('run','--rm','--network', $NetworkName,'-v', "$volume",'-e',"PGPASSWORD=$PostgresPassword", $Osm2pgsqlImage,
+    'osm2pgsql','-d', $DbName,'-U','postgres','--host', $ContainerName,'--port','5432','--create','--slim','--hstore','--latlong')
+  if ($BBox) {
+    Write-Host "Using bounding box: $BBox"
+    $dockerArgs += @('--bbox', $BBox)
+  }
+  $dockerArgs += @("/data/$pbfName")
+  if ($pbfPath -ne "$($Workdir)\$pbfName") {
+    # If the file is outside the workdir, copy it in
+    Copy-Item $pbfPath "$($Workdir)\$pbfName" -Force
+  }
+  $oldErrPref = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  $imp = & docker @dockerArgs 2>&1
+  $ErrorActionPreference = $oldErrPref
   if ($LASTEXITCODE -ne 0) { Fail "osm2pgsql import failed: $imp" }
 }
 
@@ -74,7 +103,7 @@ if (-not $SkipRoads) {
   docker exec $ContainerName sh -c "mkdir -p /data" | Out-Null
   $roadsLocal = Join-Path $Workdir "scripts\roads.sql"
   if (-not (Test-Path $roadsLocal)) { Fail "roads.sql not found at '$roadsLocal'" }
-  docker cp $roadsLocal "$ContainerName:/data/roads.sql"
+  docker cp $roadsLocal "$($ContainerName):/data/roads.sql"
   $roadsOut = docker exec $ContainerName psql -U postgres -d $DbName -f /data/roads.sql 2>&1
   if ($LASTEXITCODE -ne 0) { Fail "Applying roads.sql failed: $roadsOut" }
 }
