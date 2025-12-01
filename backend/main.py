@@ -7,7 +7,6 @@ from .engine.router import Router
 from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
-app = FastAPI(title="PathForge Routing Engine")
 
 from contextlib import asynccontextmanager
 import logging
@@ -36,7 +35,7 @@ app = FastAPI(title="PathForge Routing Engine", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
