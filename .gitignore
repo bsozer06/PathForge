@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Node
+node_modules/
+
+# Env & local
+.env
+*.log
+.DS_Store
+
+# Data and caches
+*.osm.pbf
+backend/data/

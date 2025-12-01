@@ -84,8 +84,86 @@ PGDATABASE=osm
 
 Optional: use `scripts/setup_postgis.ps1` to run the same with defaults (port 5434) or override parameters.
 
-## OSM Data Loading (Summary)
-Use `scripts/load_osm.sh` as reference to import a regional extract with `osm2pgsql`, then create a `roads` table. Each road LineString feeds graph builder endpoints.
+## Automated Setup (scripts/import_osm.ps1)
+Prefer a single command that handles network setup, PostGIS start, extension enablement, OSM import, `roads` creation, and verification.
+
+Quick run (from repo root):
+```powershell
+.\n+scripts\import_osm.ps1 -PbfFile "C:\_burhan\_projects\PathForge\turkey-latest.osm.pbf"
+```
+
+Common options:
+- `-HostPort 5434` change host port
+- `-DbName osm` set database name
+- `-SkipImport` skip the OSM import step
+- `-SkipRoads` skip applying `scripts\roads.sql`
+
+The script prints recommended `.env` values at the end.
+
+## OSM Import (Docker-based)
+Download a Geofabrik extract (example: Turkey):
+```powershell
+Invoke-WebRequest -Uri https://download.geofabrik.de/europe/turkey-latest.osm.pbf -OutFile turkey-latest.osm.pbf
+```
+
+Preferred: use a shared Docker network and connect container-to-container.
+
+Setup network and PostGIS:
+```powershell
+docker network create pathforge-net
+docker run -d --name pg-postgis-5434 --network pathforge-net `
+  -e POSTGRES_PASSWORD=StrongP@ssw0rd -e POSTGRES_DB=osm `
+  -p 5434:5432 postgis/postgis:15-3.4
+
+# Enable required extensions
+docker exec pg-postgis-5434 psql -U postgres -d osm -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+docker exec pg-postgis-5434 psql -U postgres -d osm -c "CREATE EXTENSION IF NOT EXISTS hstore;"
+```
+
+Import OSM with `osm2pgsql` on the same network (directly to PostGIS):
+```powershell
+docker run --rm --network pathforge-net -v "C:\_burhan\_projects\PathForge:/data" `
+  -e PGPASSWORD=StrongP@ssw0rd iboates/osm2pgsql:latest `
+  osm2pgsql -d osm -U postgres --host pg-postgis-5434 --port 5432 `
+  --create --slim --hstore --latlong /data/turkey-latest.osm.pbf
+```
+
+Create the `roads` table from `planet_osm_line`:
+```powershell
+# Option A: pipe SQL directly (no copy)
+docker exec -i pg-postgis-5434 psql -U postgres -d osm < scripts\roads.sql
+
+# Option B: create a folder and run from file
+docker exec pg-postgis-5434 sh -c "mkdir -p /data"
+docker cp scripts\roads.sql pg-postgis-5434:/data/roads.sql
+docker exec pg-postgis-5434 psql -U postgres -d osm -f /data/roads.sql
+```
+
+Verify data:
+```powershell
+docker exec pg-postgis-5434 psql -U postgres -d osm -c "SELECT COUNT(*) FROM roads;"
+. .venv\Scripts\Activate.ps1
+python backend\tools\db_check.py
+```
+
+## Quick Backend Run
+Start the FastAPI server once data is loaded and your `.env` is set:
+```powershell
+# From repo root
+. .\.venv\Scripts\Activate.ps1
+pip install -r backend\requirements.txt
+uvicorn backend.main:app --reload
+```
+
+Test the route endpoint:
+```powershell
+$body = @{ start = @{ lat = 41.01; lon = 28.97 }; end = @{ lat = 41.08; lon = 29.01 } } | ConvertTo-Json
+Invoke-WebRequest -Uri http://localhost:8000/route -Method Post -ContentType "application/json" -Body $body
+```
+
+Notes:
+- If you prefer host networking, you can import with `--host host.docker.internal --port 5434` but the shared network approach is more reliable.
+- For smaller datasets, use a city-level extract or `osm2pgsql` with a bounding box.
 
 ## Roadmap
 1. Enrich graph with intermediate vertices & turn costs.

@@ -15,6 +15,19 @@ router = APIRouter()
 # Objects initialized externally and injected
 engine_objects: Dict[str, Any] = {}
 
+@router.get('/status')
+def status():
+    builder = engine_objects.get('builder')
+    router_obj = engine_objects.get('router')
+    initialized = bool(builder and router_obj and router_obj.graph)
+    node_count = len(getattr(builder, 'node_index', {})) if builder else 0
+    edge_count = sum(len(v) for v in getattr(router_obj, 'graph', {}).values()) if router_obj else 0
+    return {
+        "initialized": initialized,
+        "nodes": node_count,
+        "edges": edge_count
+    }
+
 @router.post('/route')
 def route(req: RouteRequest):
     builder = engine_objects.get('builder')
