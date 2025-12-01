@@ -50,7 +50,6 @@ def route(req: RouteRequest, request: Request):
         "geometry": {
             "type": "LineString",
             "coordinates": [[lon, lat] for (lat, lon) in coords]
-            "coordinates": [[lon, lat] for (lat, lon) in coords]
         },
         "properties": {
             "points": len(coords)
