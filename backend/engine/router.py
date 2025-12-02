@@ -13,6 +13,18 @@ class Router:
         self.rev_index = {v: k for k, v in node_index.items()}
 
     def _nearest_node(self, lat: float, lon: float) -> Optional[str]:
+        """
+        Finds the nearest node to the given latitude and longitude.
+
+        Performs a linear search over all nodes in the reverse index to determine which node is geographically closest to the specified coordinates using the haversine distance.
+
+        Args:
+            lat (float): Latitude of the target location.
+            lon (float): Longitude of the target location.
+
+        Returns:
+            Optional[str]: The ID of the nearest node, or None if no nodes are available.
+        """
         # Simple linear search; optimize later
         best = None
         best_d = float('inf')
@@ -24,6 +36,17 @@ class Router:
         return best
 
     def route(self, start_lat: float, start_lon: float, end_lat: float, end_lon: float) -> List[Tuple[float, float]]:
+        """
+        Finds the shortest route between two geographic coordinates using the A* search algorithm.
+        Args:
+            start_lat (float): Latitude of the starting point.
+            start_lon (float): Longitude of the starting point.
+            end_lat (float): Latitude of the destination point.
+            end_lon (float): Longitude of the destination point.
+        Returns:
+            List[Tuple[float, float]]: A list of (latitude, longitude) tuples representing the path from start to end.
+                Returns an empty list if no path is found or if the start/end nodes are invalid.
+        """
         start_id = self._nearest_node(start_lat, start_lon)
         end_id = self._nearest_node(end_lat, end_lon)
         if not start_id or not end_id:
